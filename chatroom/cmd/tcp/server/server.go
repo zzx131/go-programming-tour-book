@@ -74,10 +74,26 @@ func handleConn(conn net.Conn) {
 	messageChannel <- messageInfo
 	// 4, 将该记录到全局的用户列表中，避免用锁
 	enteringChannel <- user
+	// 控制超时用户踢出
+	var userActive = make(chan struct{})
+	go func() {
+		d := 1 * time.Minute
+		timer := time.NewTimer(d)
+		for {
+			select {
+			case <-timer.C:
+				conn.Close()
+			case <-userActive:
+				timer.Reset(d)
+			}
+		}
+	}()
 	// 5, 循环读取用户输入
 	input := bufio.NewScanner(conn)
 	for input.Scan() {
 		messageChannel <- Message{OwnerID: user.ID, Content: user.ID + ":" + input.Text()}
+		// 用户活跃
+		userActive <- struct{}{}
 	}
 	if err := input.Err(); err != nil {
 		log.Println("读取错误：", err)
